@@ -16,21 +16,16 @@ const focusCode = { current: "USD" };
 const chartMode = { current: "indexed" };
 const state = {
   series: [],
-  sourceLabel: "데이터 불러오는 중",
-  syncStatus: "환율 데이터를 연결하고 있습니다.",
   updatedAt: new Date(),
 };
 
 const cardsRoot = document.querySelector("#summary-cards");
-const legendRoot = document.querySelector("#legend");
 const activeSeriesRoot = document.querySelector("#active-series");
 const accordionRoot = document.querySelector("#details-accordion");
 const tableRoot = document.querySelector("#details-table-body");
 const chartCanvas = document.querySelector("#main-chart");
 const tooltip = document.querySelector("#chart-tooltip");
 const updatedAtNode = document.querySelector("#updated-at");
-const sourceLabelNode = document.querySelector("#source-label");
-const syncStatusNode = document.querySelector("#sync-status");
 function formatDateKey(date) {
   return date.toISOString().slice(0, 10);
 }
@@ -82,6 +77,10 @@ function formatAxisValue(value) {
   return new Intl.NumberFormat("ko-KR", {
     maximumFractionDigits: value >= 100 ? 0 : 2,
   }).format(value);
+}
+
+function isCompactMobile() {
+  return window.innerWidth <= 640;
 }
 
 function normalizeCurrencyValue(code, krwPerUnit) {
@@ -232,31 +231,23 @@ async function loadSeries() {
   try {
     const history = await fetchFrankfurterHistory();
     let mergedSeries = history.series;
-    let sourceLabel = "Frankfurter 3개월 기준";
-    let syncStatus =
-      "최신 영업일 기준 3개월 추이입니다. 실시간 API 키를 연결하면 현재값을 1분마다 갱신합니다.";
     let updatedAt = history.updatedAt;
 
     try {
       const liveSnapshot = await fetchExchangerateHostLive();
       if (liveSnapshot) {
         mergedSeries = mergeLivePoint(history.series, liveSnapshot);
-        sourceLabel = "Frankfurter + ExchangeRate.host";
-        syncStatus = "실시간 환율 반영 중입니다. 현재값은 1분마다 자동 갱신됩니다.";
         updatedAt = liveSnapshot.updatedAt;
       }
     } catch (liveError) {
-      syncStatus = "실시간 연결에 실패해 최신 일간 기준 값으로 표시 중입니다.";
       console.warn(liveError);
     }
 
-    return { series: mergedSeries, sourceLabel, syncStatus, updatedAt };
+    return { series: mergedSeries, updatedAt };
   } catch (historyError) {
     console.warn(historyError);
     return {
       series: buildDemoSeries(),
-      sourceLabel: "데모 샘플 데이터",
-      syncStatus: "실데이터 연결에 실패해 데모 데이터로 표시 중입니다.",
       updatedAt: new Date(),
     };
   }
@@ -299,8 +290,6 @@ function getDisplayValue(series, pointIndex) {
 
 function renderMeta() {
   updatedAtNode.textContent = formatUpdatedAt(state.updatedAt);
-  sourceLabelNode.textContent = state.sourceLabel;
-  syncStatusNode.textContent = state.syncStatus;
 }
 
 function renderCards() {
@@ -346,6 +335,16 @@ function renderCards() {
   });
 }
 
+function scrollSummaryCardIntoView(code) {
+  const card = cardsRoot.querySelector(`[data-code="${code}"]`);
+  if (!card) return;
+  card.scrollIntoView({
+    behavior: "smooth",
+    block: "nearest",
+    inline: "center",
+  });
+}
+
 function drawSparkline(canvas, series) {
   if (!series) return;
   const ctx = canvas.getContext("2d");
@@ -388,42 +387,6 @@ function renderActiveSeries() {
   });
 }
 
-function renderLegend() {
-  legendRoot.innerHTML = "";
-
-  state.series.forEach((series) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    const isActive = chartMode.current === "absolute"
-      ? focusCode.current === series.code
-      : compareCodes.has(series.code);
-
-    button.className = `legend__item${isActive ? " is-active" : " is-hidden"}`;
-    button.innerHTML = `
-      <span class="legend__swatch" style="background:${series.color}"></span>
-      <span>${series.code}/KRW</span>
-    `;
-
-    button.addEventListener("click", () => {
-      if (chartMode.current === "absolute") {
-        focusCode.current = series.code;
-      } else {
-        if (compareCodes.has(series.code) && compareCodes.size > 1) {
-          compareCodes.delete(series.code);
-        } else {
-          compareCodes.add(series.code);
-        }
-        if (!compareCodes.has(focusCode.current)) {
-          focusCode.current = [...compareCodes][0];
-        }
-      }
-      render();
-    });
-
-    legendRoot.appendChild(button);
-  });
-}
-
 function renderDetails() {
   accordionRoot.innerHTML = "";
   tableRoot.innerHTML = "";
@@ -431,10 +394,13 @@ function renderDetails() {
   state.series.forEach((series, index) => {
     const stats = computeStats(series);
     const directionClass = stats.changeRate >= 0 ? "is-up" : "is-down";
+    const isSelected =
+      focusCode.current === series.code ||
+      (index === 0 && !state.series.some((item) => item.code === focusCode.current));
 
     const details = document.createElement("details");
-    details.className = "accordion-item";
-    if (index === 0) details.open = true;
+    details.className = `accordion-item${isSelected ? " is-selected" : ""}`;
+    details.open = isSelected;
     details.innerHTML = `
       <summary>
         <div class="accordion-item__title">
@@ -452,9 +418,21 @@ function renderDetails() {
         <div class="detail-stat"><span>변동폭</span><strong>${formatNumber(stats.range, series.code)}</strong></div>
       </div>
     `;
+
+    details.querySelector("summary").addEventListener("click", (event) => {
+      event.preventDefault();
+      if (focusCode.current === series.code) return;
+      focusCode.current = series.code;
+      render();
+      window.requestAnimationFrame(() => {
+        scrollSummaryCardIntoView(series.code);
+      });
+    });
+
     accordionRoot.appendChild(details);
 
     const row = document.createElement("tr");
+    row.className = isSelected ? "details-table__row is-selected" : "details-table__row";
     row.innerHTML = `
       <td>${series.code}/KRW</td>
       <td>${formatNumber(stats.current, series.code)}</td>
@@ -525,9 +503,9 @@ function drawMainChart(activeIndex = null) {
 
   visibleSeries.forEach((series) => {
     ctx.beginPath();
-    ctx.lineWidth = focusCode.current === series.code ? 3.4 : 2.1;
+    ctx.lineWidth = focusCode.current === series.code ? 5.25 : 2.1;
     ctx.strokeStyle = series.color;
-    ctx.globalAlpha = focusCode.current === series.code ? 1 : 0.72;
+    ctx.globalAlpha = focusCode.current === series.code ? 1 : 0.3;
 
     series.points.forEach((point, index) => {
       const value = getDisplayValue(series, index);
@@ -570,24 +548,49 @@ function drawMainChart(activeIndex = null) {
 function showTooltip(pointIndex, clientX, clientY) {
   const visibleSeries = getChartSeries();
   const date = visibleSeries[0].points[pointIndex].date;
+  const compact = isCompactMobile();
+  const primarySeries =
+    visibleSeries.find((series) => series.code === focusCode.current) || visibleSeries[0];
 
-  tooltip.innerHTML = `
-    <div class="chart-tooltip__date">${formatDate(date)}</div>
-    ${visibleSeries
-      .map((series) => {
-        const rawValue = series.points[pointIndex].value;
-        const display = chartMode.current === "absolute"
-          ? formatNumber(rawValue, series.code)
-          : `${getDisplayValue(series, pointIndex).toFixed(2)}p`;
-        return `
-          <div class="chart-tooltip__row">
-            <div><span class="chart-tooltip__swatch" style="background:${series.color}"></span>${series.code}/KRW</div>
-            <strong>${display}</strong>
-          </div>
-        `;
-      })
-      .join("")}
-  `;
+  if (compact) {
+    const rawValue = primarySeries.points[pointIndex].value;
+    const display =
+      chartMode.current === "absolute"
+        ? formatNumber(rawValue, primarySeries.code)
+        : `${getDisplayValue(primarySeries, pointIndex).toFixed(2)}p`;
+    const extraCount = Math.max(0, visibleSeries.length - 1);
+
+    tooltip.innerHTML = `
+      <div class="chart-tooltip__date">${formatDate(date)}</div>
+      <div class="chart-tooltip__row">
+        <div><span class="chart-tooltip__swatch" style="background:${primarySeries.color}"></span>${primarySeries.code}/KRW</div>
+        <strong>${display}</strong>
+      </div>
+      ${
+        extraCount
+          ? `<div class="chart-tooltip__meta">외 ${extraCount}개 통화 비교 중</div>`
+          : ""
+      }
+    `;
+  } else {
+    tooltip.innerHTML = `
+      <div class="chart-tooltip__date">${formatDate(date)}</div>
+      ${visibleSeries
+        .map((series) => {
+          const rawValue = series.points[pointIndex].value;
+          const display = chartMode.current === "absolute"
+            ? formatNumber(rawValue, series.code)
+            : `${getDisplayValue(series, pointIndex).toFixed(2)}p`;
+          return `
+            <div class="chart-tooltip__row">
+              <div><span class="chart-tooltip__swatch" style="background:${series.color}"></span>${series.code}/KRW</div>
+              <strong>${display}</strong>
+            </div>
+          `;
+        })
+        .join("")}
+    `;
+  }
   tooltip.hidden = false;
 
   const panel = chartCanvas.parentElement.getBoundingClientRect();
@@ -642,7 +645,6 @@ function render() {
   renderMeta();
   renderCards();
   renderActiveSeries();
-  renderLegend();
   renderDetails();
   drawMainChart();
 }
@@ -650,8 +652,6 @@ function render() {
 async function refreshData() {
   const payload = await loadSeries();
   state.series = payload.series;
-  state.sourceLabel = payload.sourceLabel;
-  state.syncStatus = payload.syncStatus;
   state.updatedAt = payload.updatedAt;
 
   if (!getSeriesByCode(focusCode.current)) {
