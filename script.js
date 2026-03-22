@@ -14,6 +14,7 @@ const runtimeConfig = {
 const compareCodes = new Set(["USD", "JPY", "PHP", "THB"]);
 const focusCode = { current: "USD" };
 const chartMode = { current: "indexed" };
+const calculatorDirection = { current: "to-krw" };
 const state = {
   series: [],
   updatedAt: new Date(),
@@ -26,6 +27,13 @@ const tableRoot = document.querySelector("#details-table-body");
 const chartCanvas = document.querySelector("#main-chart");
 const tooltip = document.querySelector("#chart-tooltip");
 const updatedAtNode = document.querySelector("#updated-at");
+const calculatorAmountNode = document.querySelector("#calculator-amount");
+const calculatorAmountLabelNode = document.querySelector("#calculator-amount-label");
+const calculatorDirectionNode = document.querySelector("#calculator-direction");
+const calculatorResultLabelNode = document.querySelector("#calculator-result-label");
+const calculatorSelectedCurrencyNode = document.querySelector("#calculator-selected-currency");
+const calculatorResultNode = document.querySelector("#calculator-result");
+const calculatorRateNode = document.querySelector("#calculator-rate");
 function formatDateKey(date) {
   return date.toISOString().slice(0, 10);
 }
@@ -397,6 +405,43 @@ function renderActiveSeries() {
   });
 }
 
+function renderCalculator() {
+  updateCalculator();
+}
+
+function updateCalculator() {
+  const selectedCode = focusCode.current;
+  const selectedSeries = getSeriesByCode(selectedCode);
+  if (!selectedSeries) {
+    calculatorSelectedCurrencyNode.textContent = "-";
+    calculatorResultNode.textContent = "-";
+    calculatorRateNode.textContent = "-";
+    return;
+  }
+
+  const amount = Number(calculatorAmountNode.value || 0);
+  const currentRate = computeStats(selectedSeries).current;
+  calculatorSelectedCurrencyNode.textContent = `${selectedSeries.code}/KRW`;
+
+  if (calculatorDirection.current === "to-krw") {
+    const krwValue = amount * currentRate;
+    calculatorAmountLabelNode.textContent = `${selectedSeries.code} 금액`;
+    calculatorResultLabelNode.textContent = "원화 환산";
+    calculatorResultNode.textContent = `${new Intl.NumberFormat("ko-KR", {
+      maximumFractionDigits: 0,
+    }).format(krwValue)} KRW`;
+    calculatorRateNode.textContent = `${selectedSeries.unitLabel} = ${formatNumber(currentRate, selectedSeries.code)} KRW`;
+  } else {
+    const foreignValue = currentRate ? amount / currentRate : 0;
+    calculatorAmountLabelNode.textContent = "원화 금액";
+    calculatorResultLabelNode.textContent = `${selectedSeries.code} 환산`;
+    calculatorResultNode.textContent = `${new Intl.NumberFormat("ko-KR", {
+      maximumFractionDigits: 3,
+    }).format(foreignValue)} ${selectedSeries.code}`;
+    calculatorRateNode.textContent = `1 KRW = ${(1 / currentRate).toFixed(6)} ${selectedSeries.code}`;
+  }
+}
+
 function renderDetails() {
   accordionRoot.innerHTML = "";
   tableRoot.innerHTML = "";
@@ -464,7 +509,7 @@ function drawMainChart(activeIndex = null) {
   const ctx = chartCanvas.getContext("2d");
   const dpr = window.devicePixelRatio || 1;
   const cssWidth = chartCanvas.clientWidth;
-  const cssHeight = Math.max(288, Math.min(416, Math.round(window.innerHeight * 0.352)));
+  const cssHeight = Math.max(202, Math.min(291, Math.round(window.innerHeight * 0.2464)));
   chartCanvas.width = cssWidth * dpr;
   chartCanvas.height = cssHeight * dpr;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -690,6 +735,20 @@ function attachUiEvents() {
     render();
   });
 
+  calculatorDirectionNode.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-direction]");
+    if (!button) return;
+    calculatorDirection.current = button.dataset.direction;
+    calculatorDirectionNode.querySelectorAll(".toggle-group__button").forEach((node) => {
+      node.classList.toggle("is-active", node === button);
+    });
+    updateCalculator();
+  });
+
+  calculatorAmountNode.addEventListener("input", () => {
+    updateCalculator();
+  });
+
   window.addEventListener("resize", () => drawMainChart());
 }
 
@@ -697,6 +756,7 @@ function render() {
   renderMeta();
   renderCards();
   renderActiveSeries();
+  renderCalculator();
   renderDetails();
   drawMainChart();
 }

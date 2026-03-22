@@ -22,6 +22,34 @@
           <div class="card-strip" id="summary-cards"></div>
         </section>
 
+        <section class="section calculator-section">
+          <div class="section__heading">
+            <div>
+              <h2>환율 계산기</h2>
+            </div>
+            <div class="toggle-group calculator-toggle" id="calculator-direction" aria-label="환전 방향 선택">
+              <button class="toggle-group__button is-active" data-direction="to-krw">외화 → 원화</button>
+              <button class="toggle-group__button" data-direction="from-krw">원화 → 외화</button>
+            </div>
+          </div>
+
+          <div class="calculator">
+            <label class="calculator__field">
+              <span id="calculator-amount-label">금액</span>
+              <input id="calculator-amount" type="number" inputmode="decimal" min="0" step="any" value="100" />
+            </label>
+
+            <div class="calculator__result">
+              <div class="calculator__result-top">
+                <span id="calculator-selected-currency">-</span>
+                <span id="calculator-result-label">원화 환산</span>
+              </div>
+              <strong id="calculator-result">-</strong>
+              <p id="calculator-rate">-</p>
+            </div>
+          </div>
+        </section>
+
         <section class="section chart-section">
           <div class="section__heading">
             <div>
