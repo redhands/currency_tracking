@@ -8,6 +8,10 @@
 - PHP/KRW
 - THB/KRW
 
+## 배포 주소
+
+- GitHub Pages: https://redhands.github.io/currency_tracking/
+
 ## 주요 기능
 
 - 모바일 퍼스트 레이아웃
