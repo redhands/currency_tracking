@@ -2,7 +2,7 @@ const currencyConfigs = [
   { code: "USD", name: "미국 달러", unitLabel: "1달러", color: "#c55a11" },
   { code: "JPY", name: "일본 엔", unitLabel: "100엔", color: "#0f7b85", scale: 100 },
   { code: "PHP", name: "필리핀 페소", unitLabel: "1페소", color: "#2d8f4e" },
-  { code: "THB", name: "태국 바트", unitLabel: "1바트", color: "#8b5a2b" },
+  { code: "IDR", name: "인도네시아 루피아", unitLabel: "100루피아", color: "#8b5a2b", scale: 100 },
 ];
 
 const runtimeConfig = {
@@ -11,7 +11,7 @@ const runtimeConfig = {
   ...window.FX_DASHBOARD_CONFIG,
 };
 
-const compareCodes = new Set(["USD", "JPY", "PHP", "THB"]);
+const compareCodes = new Set(["USD", "JPY", "PHP", "IDR"]);
 const focusCode = { current: "USD" };
 const chartMode = { current: "indexed" };
 const calculatorDirection = { current: "to-krw" };
@@ -124,7 +124,7 @@ function computeKrwPerUnitFromUsdQuotes(quotes) {
 async function fetchFrankfurterHistory() {
   const start = formatDateKey(getHistoryStartDate());
   const end = formatDateKey(getHistoryEndDate());
-  const symbols = "KRW,JPY,PHP,THB";
+  const symbols = "KRW,JPY,PHP,IDR";
   const url = `https://api.frankfurter.dev/v1/${start}..${end}?base=USD&symbols=${symbols}`;
   const response = await fetch(url);
 
@@ -167,7 +167,7 @@ async function fetchFrankfurterHistory() {
 async function fetchExchangerateHostLive() {
   if (!runtimeConfig.exchangerateHostAccessKey) return null;
 
-  const symbols = "KRW,JPY,PHP,THB";
+  const symbols = "KRW,JPY,PHP,IDR";
   const url = `https://api.exchangerate.host/live?access_key=${encodeURIComponent(
     runtimeConfig.exchangerateHostAccessKey
   )}&currencies=${symbols}`;
@@ -218,7 +218,7 @@ function mergeLivePoint(historySeries, liveSnapshot) {
 
 function buildDemoSeries() {
   const today = new Date();
-  const baselines = { USD: 1452, JPY: 973, PHP: 25.4, THB: 42.4 };
+  const baselines = { USD: 1452, JPY: 973, PHP: 25.4, IDR: 8.9 };
 
   return currencyConfigs.map((config, configIndex) => ({
     ...config,

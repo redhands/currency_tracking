@@ -6,7 +6,7 @@
 - USD/KRW
 - JPY/KRW
 - PHP/KRW
-- THB/KRW
+- IDR/KRW
 
 ## 배포 주소
 
