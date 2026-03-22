@@ -166,6 +166,51 @@ input {
   text-align: right;
 }
 
+.favorites-toolbar {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.favorites-toolbar__message {
+  margin: -4px 0 12px;
+  color: var(--up);
+  font-size: 0.82rem;
+}
+
+.favorites-toolbar__select,
+.favorites-toolbar__add,
+.summary-card__icon-button {
+  border: 1px solid rgba(92, 72, 38, 0.14);
+  background: rgba(255, 250, 241, 0.9);
+  color: var(--muted);
+}
+
+.favorites-toolbar__select,
+.favorites-toolbar__add {
+  height: 38px;
+  border-radius: 12px;
+}
+
+.favorites-toolbar__select {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0 12px;
+}
+
+.favorites-toolbar__add,
+.summary-card__icon-button {
+  cursor: pointer;
+}
+
+.favorites-toolbar__add {
+  flex: 0 0 auto;
+  padding: 0 12px;
+  color: var(--text);
+  background: rgba(255, 248, 236, 0.98);
+}
+
 .card-strip {
   display: grid;
   grid-auto-flow: column;
@@ -213,6 +258,18 @@ input {
   align-items: start;
 }
 
+.summary-card__actions {
+  display: inline-flex;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.summary-card__icon-button {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+}
+
 .summary-card__code {
   font-family: "Avenir Next", "Segoe UI", sans-serif;
   font-size: 1.1rem;
@@ -222,6 +279,13 @@ input {
 .summary-card__unit {
   color: var(--muted);
   font-size: 0.83rem;
+}
+
+.summary-card__price-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .summary-card__price {
@@ -547,6 +611,10 @@ input {
 
   .card-strip {
     grid-auto-columns: minmax(220px, 92%);
+  }
+
+  .favorites-toolbar {
+    width: 100%;
   }
 
   .calculator {

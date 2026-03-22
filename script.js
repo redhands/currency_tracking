@@ -1,9 +1,38 @@
-const currencyConfigs = [
+const defaultCurrencyConfigs = [
   { code: "USD", name: "미국 달러", unitLabel: "1달러", color: "#c55a11" },
   { code: "JPY", name: "일본 엔", unitLabel: "100엔", color: "#0f7b85", scale: 100 },
   { code: "PHP", name: "필리핀 페소", unitLabel: "1페소", color: "#2d8f4e" },
   { code: "IDR", name: "인도네시아 루피아", unitLabel: "100루피아", color: "#8b5a2b", scale: 100 },
+  { code: "AUD", name: "호주 달러" },
+  { code: "CAD", name: "캐나다 달러" },
+  { code: "CHF", name: "스위스 프랑" },
+  { code: "CNY", name: "중국 위안" },
+  { code: "EUR", name: "유로" },
+  { code: "GBP", name: "영국 파운드" },
+  { code: "HKD", name: "홍콩 달러" },
+  { code: "NZD", name: "뉴질랜드 달러" },
+  { code: "SGD", name: "싱가포르 달러" },
+  { code: "THB", name: "태국 바트" },
 ];
+const currencyConfigMap = new Map(
+  defaultCurrencyConfigs.map((config) => [config.code, config])
+);
+const palette = [
+  "#c55a11",
+  "#0f7b85",
+  "#2d8f4e",
+  "#8b5a2b",
+  "#a33b5e",
+  "#355c7d",
+  "#d08c00",
+  "#6c5b7b",
+  "#1f7a4f",
+  "#9c6644",
+];
+const currencyDisplayNames =
+  typeof Intl !== "undefined" && typeof Intl.DisplayNames !== "undefined"
+    ? new Intl.DisplayNames(["ko-KR"], { type: "currency" })
+    : null;
 
 const runtimeConfig = {
   refreshMs: 60 * 1000,
@@ -15,12 +44,18 @@ const compareCodes = new Set(["USD", "JPY", "PHP", "IDR"]);
 const focusCode = { current: "USD" };
 const chartMode = { current: "indexed" };
 const calculatorDirection = { current: "to-krw" };
+const COOKIE_NAME = "favorite_cards_v1";
 const state = {
+  currencies: [],
   series: [],
+  favoriteCodes: [],
   updatedAt: new Date(),
 };
 
 const cardsRoot = document.querySelector("#summary-cards");
+const favoritesSelectNode = document.querySelector("#favorites-select");
+const favoritesAddNode = document.querySelector("#favorites-add");
+const favoritesMessageNode = document.querySelector("#favorites-message");
 const activeSeriesRoot = document.querySelector("#active-series");
 const accordionRoot = document.querySelector("#details-accordion");
 const tableRoot = document.querySelector("#details-table-body");
@@ -36,6 +71,38 @@ const calculatorResultNode = document.querySelector("#calculator-result");
 const calculatorRateNode = document.querySelector("#calculator-rate");
 function formatDateKey(date) {
   return date.toISOString().slice(0, 10);
+}
+
+function getCookie(name) {
+  const match = document.cookie
+    .split("; ")
+    .find((row) => row.startsWith(`${name}=`));
+  return match ? decodeURIComponent(match.split("=").slice(1).join("=")) : "";
+}
+
+function setCookie(name, value, days = 365) {
+  const expires = new Date(Date.now() + days * 86400000).toUTCString();
+  document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/; SameSite=Lax`;
+}
+
+function getDefaultFavoriteCodes() {
+  return defaultCurrencyConfigs.slice(0, 4).map((config) => config.code);
+}
+
+function loadFavoriteCodes() {
+  try {
+    const raw = getCookie(COOKIE_NAME);
+    if (!raw) return getDefaultFavoriteCodes();
+    const parsed = JSON.parse(raw);
+    const valid = parsed.filter((code) => state.currencies.some((config) => config.code === code));
+    return valid.length ? valid.slice(0, 4) : getDefaultFavoriteCodes();
+  } catch {
+    return getDefaultFavoriteCodes();
+  }
+}
+
+function saveFavoriteCodes() {
+  setCookie(COOKIE_NAME, JSON.stringify(state.favoriteCodes.slice(0, 4)));
 }
 
 function getHistoryStartDate() {
@@ -99,11 +166,27 @@ function normalizeCurrencyValue(code, krwPerUnit) {
   return Number(krwPerUnit.toFixed(digits));
 }
 
+function getCurrencyConfig(code) {
+  return state.currencies.find((config) => config.code === code);
+}
+
+function buildCurrencyConfig(code, name, index) {
+  const override = currencyConfigMap.get(code);
+  const translatedName = currencyDisplayNames?.of(code);
+  return {
+    code,
+    name: override?.name || translatedName || name,
+    unitLabel: override?.unitLabel || `1${code}`,
+    color: override?.color || palette[index % palette.length],
+    scale: override?.scale || 1,
+  };
+}
+
 function computeKrwPerUnitFromUsdQuotes(quotes) {
   const usdToKrw = quotes.USDKRW;
   if (!usdToKrw) throw new Error("USDKRW quote is missing");
 
-  return currencyConfigs.reduce((accumulator, config) => {
+  return state.currencies.reduce((accumulator, config) => {
     if (config.code === "USD") {
       accumulator[config.code] = normalizeCurrencyValue(config.code, usdToKrw);
       return accumulator;
@@ -121,11 +204,26 @@ function computeKrwPerUnitFromUsdQuotes(quotes) {
   }, {});
 }
 
+async function fetchCurrencyList() {
+  const response = await fetch("https://api.frankfurter.dev/v1/currencies");
+  if (!response.ok) {
+    throw new Error(`Frankfurter currencies request failed: ${response.status}`);
+  }
+
+  const payload = await response.json();
+  const supportedCodes = Object.keys(payload)
+    .filter((code) => code !== "KRW")
+    .sort();
+
+  const orderedCodes = supportedCodes;
+
+  return orderedCodes.map((code, index) => buildCurrencyConfig(code, payload[code], index));
+}
+
 async function fetchFrankfurterHistory() {
   const start = formatDateKey(getHistoryStartDate());
   const end = formatDateKey(getHistoryEndDate());
-  const symbols = "KRW,JPY,PHP,IDR";
-  const url = `https://api.frankfurter.dev/v1/${start}..${end}?base=USD&symbols=${symbols}`;
+  const url = `https://api.frankfurter.dev/v1/${start}..${end}?base=USD`;
   const response = await fetch(url);
 
   if (!response.ok) {
@@ -138,7 +236,7 @@ async function fetchFrankfurterHistory() {
     throw new Error("Not enough history points from Frankfurter");
   }
 
-  const series = currencyConfigs.map((config) => ({
+  const series = state.currencies.map((config) => ({
     ...config,
     points: dateKeys.map((dateKey) => {
       const rates = payload.rates[dateKey];
@@ -167,7 +265,7 @@ async function fetchFrankfurterHistory() {
 async function fetchExchangerateHostLive() {
   if (!runtimeConfig.exchangerateHostAccessKey) return null;
 
-  const symbols = "KRW,JPY,PHP,IDR";
+  const symbols = state.currencies.map((config) => config.code).join(",");
   const url = `https://api.exchangerate.host/live?access_key=${encodeURIComponent(
     runtimeConfig.exchangerateHostAccessKey
   )}&currencies=${symbols}`;
@@ -220,12 +318,12 @@ function buildDemoSeries() {
   const today = new Date();
   const baselines = { USD: 1452, JPY: 973, PHP: 25.4, IDR: 8.9 };
 
-  return currencyConfigs.map((config, configIndex) => ({
+  return state.currencies.map((config, configIndex) => ({
     ...config,
     points: Array.from({ length: 90 }, (_, index) => {
       const date = new Date(today);
       date.setDate(today.getDate() - (89 - index));
-      const baseline = baselines[config.code];
+      const baseline = baselines[config.code] || (40 + configIndex * 6);
       const wave = Math.sin((index + configIndex) * 0.16) * baseline * 0.02;
       const wave2 = Math.cos((index + configIndex * 1.8) * 0.09) * baseline * 0.01;
       const drift = index * baseline * 0.00055;
@@ -240,6 +338,9 @@ function buildDemoSeries() {
 
 async function loadSeries() {
   try {
+    if (!state.currencies.length) {
+      state.currencies = await fetchCurrencyList();
+    }
     const history = await fetchFrankfurterHistory();
     let mergedSeries = history.series;
     let updatedAt = history.updatedAt;
@@ -257,6 +358,9 @@ async function loadSeries() {
     return { series: mergedSeries, updatedAt };
   } catch (historyError) {
     console.warn(historyError);
+    if (!state.currencies.length) {
+      state.currencies = defaultCurrencyConfigs;
+    }
     return {
       series: buildDemoSeries(),
       updatedAt: new Date(),
@@ -306,11 +410,15 @@ function renderMeta() {
 function renderCards() {
   cardsRoot.innerHTML = "";
 
-  state.series.forEach((series) => {
+  state.favoriteCodes
+    .map((code) => getSeriesByCode(code))
+    .filter(Boolean)
+    .forEach((series, index) => {
     const stats = computeStats(series);
     const isFocused = focusCode.current === series.code;
     const card = document.createElement("article");
     card.className = `summary-card${isFocused ? " is-emphasized" : ""}`;
+    card.dataset.code = series.code;
     const directionClass = stats.changeRate >= 0 ? "is-up" : "is-down";
 
     card.innerHTML = `
@@ -319,9 +427,24 @@ function renderCards() {
           <div class="summary-card__code">${series.code}/KRW</div>
           <div class="summary-card__name">${series.name}</div>
         </div>
+        <div class="summary-card__actions">
+          ${
+            index === 0
+              ? ""
+              : '<button class="summary-card__icon-button" type="button" data-action="priority-left">←</button>'
+          }
+          ${
+            index === state.favoriteCodes.length - 1
+              ? ""
+              : '<button class="summary-card__icon-button" type="button" data-action="priority-right">→</button>'
+          }
+          <button class="summary-card__icon-button" type="button" data-action="remove">×</button>
+        </div>
+      </div>
+      <div class="summary-card__price-row">
+        <div class="summary-card__price">${formatNumber(stats.current, series.code)}</div>
         <span class="metric ${directionClass}">${stats.trend}</span>
       </div>
-      <div class="summary-card__price">${formatNumber(stats.current, series.code)}</div>
       <div class="summary-card__unit">${series.unitLabel} 기준</div>
       <canvas class="sparkline" width="320" height="56" data-code="${series.code}"></canvas>
       <div class="summary-card__bottom">
@@ -338,12 +461,59 @@ function renderCards() {
       render();
     });
 
+    const priorityLeftButton = card.querySelector('[data-action="priority-left"]');
+    if (priorityLeftButton) {
+      priorityLeftButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        if (index === 0) return;
+        const reordered = [...state.favoriteCodes];
+        [reordered[index - 1], reordered[index]] = [reordered[index], reordered[index - 1]];
+        state.favoriteCodes = reordered;
+        saveFavoriteCodes();
+        render();
+      });
+    }
+
+    const priorityRightButton = card.querySelector('[data-action="priority-right"]');
+    if (priorityRightButton) {
+      priorityRightButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        if (index >= state.favoriteCodes.length - 1) return;
+        const reordered = [...state.favoriteCodes];
+        [reordered[index], reordered[index + 1]] = [reordered[index + 1], reordered[index]];
+        state.favoriteCodes = reordered;
+        saveFavoriteCodes();
+        render();
+      });
+    }
+
+    card.querySelector('[data-action="remove"]').addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (state.favoriteCodes.length === 1) return;
+      state.favoriteCodes = state.favoriteCodes.filter((code) => code !== series.code);
+      saveFavoriteCodes();
+      render();
+    });
+
     cardsRoot.appendChild(card);
-  });
+    });
 
   cardsRoot.querySelectorAll(".sparkline").forEach((canvas) => {
     drawSparkline(canvas, getSeriesByCode(canvas.dataset.code));
   });
+}
+
+function renderFavoritesToolbar() {
+  const availableConfigs = state.currencies.filter((config) => !state.favoriteCodes.includes(config.code));
+  favoritesSelectNode.innerHTML = availableConfigs.length
+    ? availableConfigs.map((config) => `<option value="${config.code}">${config.code} / ${config.name}</option>`).join("")
+    : '<option value="">추가 가능한 통화 없음</option>';
+  favoritesAddNode.disabled = availableConfigs.length === 0;
+}
+
+function showFavoritesMessage(message) {
+  favoritesMessageNode.textContent = message;
+  favoritesMessageNode.hidden = !message;
 }
 
 function scrollSummaryCardIntoView(code) {
@@ -446,12 +616,15 @@ function renderDetails() {
   accordionRoot.innerHTML = "";
   tableRoot.innerHTML = "";
 
-  state.series.forEach((series, index) => {
+  state.favoriteCodes
+    .map((code) => getSeriesByCode(code))
+    .filter(Boolean)
+    .forEach((series, index) => {
     const stats = computeStats(series);
     const directionClass = stats.changeRate >= 0 ? "is-up" : "is-down";
     const isSelected =
       focusCode.current === series.code ||
-      (index === 0 && !state.series.some((item) => item.code === focusCode.current));
+      (index === 0 && !state.favoriteCodes.includes(focusCode.current));
 
     const details = document.createElement("details");
     details.className = `accordion-item${isSelected ? " is-selected" : ""}`;
@@ -499,7 +672,7 @@ function renderDetails() {
       <td>${formatNumber(stats.range, series.code)}</td>
     `;
     tableRoot.appendChild(row);
-  });
+    });
 }
 
 function drawMainChart(activeIndex = null) {
@@ -749,11 +922,25 @@ function attachUiEvents() {
     updateCalculator();
   });
 
+  favoritesAddNode.addEventListener("click", () => {
+    const code = favoritesSelectNode.value;
+    if (!code || state.favoriteCodes.includes(code)) return;
+    if (state.favoriteCodes.length >= 4) {
+      showFavoritesMessage("즐겨찾기는 최대 4개까지 등록할 수 있습니다.");
+      return;
+    }
+    state.favoriteCodes = [...state.favoriteCodes, code];
+    saveFavoriteCodes();
+    showFavoritesMessage("");
+    render();
+  });
+
   window.addEventListener("resize", () => drawMainChart());
 }
 
 function render() {
   renderMeta();
+  renderFavoritesToolbar();
   renderCards();
   renderActiveSeries();
   renderCalculator();
@@ -765,6 +952,13 @@ async function refreshData() {
   const payload = await loadSeries();
   state.series = payload.series;
   state.updatedAt = payload.updatedAt;
+  if (!state.favoriteCodes.length) {
+    state.favoriteCodes = loadFavoriteCodes();
+  }
+  state.favoriteCodes = state.favoriteCodes.filter((code) => getSeriesByCode(code)).slice(0, 4);
+  if (!state.favoriteCodes.length) {
+    state.favoriteCodes = getDefaultFavoriteCodes().filter((code) => getSeriesByCode(code));
+  }
 
   if (!getSeriesByCode(focusCode.current)) {
     focusCode.current = state.series[0]?.code || "USD";
