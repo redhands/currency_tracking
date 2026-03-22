@@ -39,6 +39,23 @@ const runtimeConfig = {
   exchangerateHostAccessKey: "",
   ...window.FX_DASHBOARD_CONFIG,
 };
+const isBundledApp = window.location.protocol === "app-assets:";
+
+function buildApiUrl(providerPath) {
+  if (isBundledApp) {
+    return `app-assets://dashboard/api/${providerPath}`;
+  }
+
+  if (providerPath.startsWith("frankfurter/")) {
+    return `https://api.frankfurter.dev/v1/${providerPath.replace("frankfurter/", "")}`;
+  }
+
+  if (providerPath.startsWith("exchangerate/")) {
+    return `https://api.exchangerate.host/${providerPath.replace("exchangerate/", "")}`;
+  }
+
+  throw new Error(`Unknown provider path: ${providerPath}`);
+}
 
 const compareCodes = new Set(["USD", "JPY", "PHP", "IDR"]);
 const focusCode = { current: "USD" };
@@ -69,6 +86,14 @@ const calculatorResultLabelNode = document.querySelector("#calculator-result-lab
 const calculatorSelectedCurrencyNode = document.querySelector("#calculator-selected-currency");
 const calculatorResultNode = document.querySelector("#calculator-result");
 const calculatorRateNode = document.querySelector("#calculator-rate");
+
+const dataStatus = {
+  level: "ok",
+  message: "",
+};
+const chartStatus = {
+  message: "",
+};
 function formatDateKey(date) {
   return date.toISOString().slice(0, 10);
 }
@@ -144,6 +169,13 @@ function formatUpdatedAt(value) {
   }).format(value);
 }
 
+function isNetworkError(error) {
+  if (!error) return false;
+  if (typeof navigator !== "undefined" && navigator.onLine === false) return true;
+  const message = String(error.message || error);
+  return /Failed to fetch|Load failed|NetworkError|network/i.test(message);
+}
+
 function formatAxisValue(value) {
   if (chartMode.current === "indexed") {
     const diff = value - 100;
@@ -205,7 +237,7 @@ function computeKrwPerUnitFromUsdQuotes(quotes) {
 }
 
 async function fetchCurrencyList() {
-  const response = await fetch("https://api.frankfurter.dev/v1/currencies");
+  const response = await fetch(buildApiUrl("frankfurter/currencies"));
   if (!response.ok) {
     throw new Error(`Frankfurter currencies request failed: ${response.status}`);
   }
@@ -223,7 +255,7 @@ async function fetchCurrencyList() {
 async function fetchFrankfurterHistory() {
   const start = formatDateKey(getHistoryStartDate());
   const end = formatDateKey(getHistoryEndDate());
-  const url = `https://api.frankfurter.dev/v1/${start}..${end}?base=USD`;
+  const url = buildApiUrl(`frankfurter/${start}..${end}?base=USD`);
   const response = await fetch(url);
 
   if (!response.ok) {
@@ -266,9 +298,11 @@ async function fetchExchangerateHostLive() {
   if (!runtimeConfig.exchangerateHostAccessKey) return null;
 
   const symbols = state.currencies.map((config) => config.code).join(",");
-  const url = `https://api.exchangerate.host/live?access_key=${encodeURIComponent(
-    runtimeConfig.exchangerateHostAccessKey
-  )}&currencies=${symbols}`;
+  const url = buildApiUrl(
+    `exchangerate/live?access_key=${encodeURIComponent(
+      runtimeConfig.exchangerateHostAccessKey
+    )}&currencies=${symbols}`
+  );
   const response = await fetch(url);
 
   if (!response.ok) {
@@ -353,17 +387,31 @@ async function loadSeries() {
       }
     } catch (liveError) {
       console.warn(liveError);
+      dataStatus.level = "warning";
+      dataStatus.message =
+        "실시간 시세 연결에 실패해 최근 수집 데이터로 표시 중입니다.";
     }
 
+    if (dataStatus.level === "ok") {
+      dataStatus.message = "";
+    }
     return { series: mergedSeries, updatedAt };
   } catch (historyError) {
     console.warn(historyError);
     if (!state.currencies.length) {
       state.currencies = defaultCurrencyConfigs;
     }
+
+    const message = isNetworkError(historyError)
+      ? "네트워크에 연결되어 있지 않아 환율 데이터를 불러오지 못했습니다. 인터넷 연결 후 다시 시도해 주세요."
+      : "환율 데이터를 불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.";
+
+    dataStatus.level = "error";
+    dataStatus.message = message;
+
     return {
-      series: buildDemoSeries(),
-      updatedAt: new Date(),
+      series: state.series.length ? state.series : [],
+      updatedAt: state.updatedAt || new Date(),
     };
   }
 }
@@ -404,7 +452,17 @@ function getDisplayValue(series, pointIndex) {
 }
 
 function renderMeta() {
-  updatedAtNode.textContent = formatUpdatedAt(state.updatedAt);
+  updatedAtNode.textContent = state.series.length ? formatUpdatedAt(state.updatedAt) : "-";
+}
+
+function renderStatus() {
+  return;
+}
+
+function renderChartEmptyState() {
+  const hasData = state.series.length > 0;
+  const hasChartMessage = Boolean(chartStatus.message);
+  chartCanvas.hidden = !hasData || hasChartMessage;
 }
 
 function renderCards() {
@@ -505,9 +563,21 @@ function renderCards() {
 
 function renderFavoritesToolbar() {
   const availableConfigs = state.currencies.filter((config) => !state.favoriteCodes.includes(config.code));
-  favoritesSelectNode.innerHTML = availableConfigs.length
-    ? availableConfigs.map((config) => `<option value="${config.code}">${config.code} / ${config.name}</option>`).join("")
-    : '<option value="">추가 가능한 통화 없음</option>';
+  favoritesSelectNode.innerHTML = "";
+
+  if (availableConfigs.length) {
+    availableConfigs.forEach((config) => {
+      const option = document.createElement("option");
+      option.value = config.code;
+      option.textContent = `${config.code} / ${config.name}`;
+      favoritesSelectNode.appendChild(option);
+    });
+  } else {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "추가 가능한 통화 없음";
+    favoritesSelectNode.appendChild(option);
+  }
   favoritesAddNode.disabled = availableConfigs.length === 0;
 }
 
@@ -677,12 +747,32 @@ function renderDetails() {
 
 function drawMainChart(activeIndex = null) {
   const visibleSeries = getChartSeries();
-  if (!visibleSeries.length) return;
+  if (!visibleSeries.length) {
+    chartStatus.message = "표시할 차트 데이터가 없습니다.";
+    return false;
+  }
 
   const ctx = chartCanvas.getContext("2d");
+  if (!ctx) {
+    chartStatus.message = "이 기기에서 차트를 그리지 못했습니다.";
+    return false;
+  }
   const dpr = window.devicePixelRatio || 1;
-  const cssWidth = chartCanvas.clientWidth;
+  const cssWidth = Math.round(
+    chartCanvas.getBoundingClientRect().width ||
+      chartCanvas.clientWidth ||
+      chartCanvas.parentElement?.clientWidth ||
+      0
+  );
   const cssHeight = Math.max(202, Math.min(291, Math.round(window.innerHeight * 0.2464)));
+  if (cssWidth < 120) {
+    window.requestAnimationFrame(() => {
+      if (!chartCanvas.hidden) {
+        drawMainChart(activeIndex);
+      }
+    });
+    return false;
+  }
   chartCanvas.width = cssWidth * dpr;
   chartCanvas.height = cssHeight * dpr;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -690,9 +780,14 @@ function drawMainChart(activeIndex = null) {
   const width = cssWidth;
   const height = cssHeight;
   const padding = { top: 20, right: 16, bottom: 38, left: 12 };
-  const innerWidth = width - padding.left - padding.right;
-  const innerHeight = height - padding.top - padding.bottom;
+  const innerWidth = Math.max(1, width - padding.left - padding.right);
+  const innerHeight = Math.max(1, height - padding.top - padding.bottom);
   const pointCount = visibleSeries[0].points.length;
+  if (!pointCount) {
+    chartStatus.message = "차트 포인트가 없어 그래프를 표시할 수 없습니다.";
+    return false;
+  }
+  const xDivisor = Math.max(1, pointCount - 1);
   const values = visibleSeries.flatMap((series) =>
     series.points.map((_, index) => getDisplayValue(series, index))
   );
@@ -757,7 +852,7 @@ function drawMainChart(activeIndex = null) {
 
   // Weekly guide lines on the time axis.
   for (let index = 0; index < pointCount; index += 7) {
-    const x = padding.left + (index / (pointCount - 1)) * innerWidth;
+    const x = padding.left + (index / xDivisor) * innerWidth;
     ctx.strokeStyle = "rgba(92, 72, 38, 0.1)";
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -779,7 +874,7 @@ function drawMainChart(activeIndex = null) {
 
     series.points.forEach((point, index) => {
       const value = getDisplayValue(series, index);
-      const x = padding.left + (index / (pointCount - 1)) * innerWidth;
+      const x = padding.left + (index / xDivisor) * innerWidth;
       const y = padding.top + innerHeight - ((value - min) / range) * innerHeight;
       if (index === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
@@ -790,7 +885,7 @@ function drawMainChart(activeIndex = null) {
   ctx.globalAlpha = 1;
 
   if (activeIndex !== null) {
-    const x = padding.left + (activeIndex / (pointCount - 1)) * innerWidth;
+    const x = padding.left + (activeIndex / xDivisor) * innerWidth;
     ctx.strokeStyle = "rgba(31, 26, 20, 0.18)";
     ctx.beginPath();
     ctx.moveTo(x, padding.top);
@@ -813,10 +908,13 @@ function drawMainChart(activeIndex = null) {
   chartCanvas.dataset.paddingLeft = String(padding.left);
   chartCanvas.dataset.innerWidth = String(innerWidth);
   chartCanvas.dataset.pointCount = String(pointCount);
+  chartStatus.message = "";
+  return true;
 }
 
 function showTooltip(pointIndex, clientX, clientY) {
   const visibleSeries = getChartSeries();
+  if (!visibleSeries.length || pointIndex < 0 || pointIndex >= visibleSeries[0].points.length) return;
   const date = visibleSeries[0].points[pointIndex].date;
   const compact = isCompactMobile();
   const primarySeries =
@@ -882,6 +980,7 @@ function attachChartEvents() {
     const paddingLeft = Number(chartCanvas.dataset.paddingLeft);
     const innerWidth = Number(chartCanvas.dataset.innerWidth);
     const pointCount = Number(chartCanvas.dataset.pointCount);
+    if (!innerWidth || !pointCount) return;
     const clamped = Math.min(Math.max(x - paddingLeft, 0), innerWidth);
     const pointIndex = Math.round((clamped / innerWidth) * (pointCount - 1));
     drawMainChart(pointIndex);
@@ -936,19 +1035,41 @@ function attachUiEvents() {
   });
 
   window.addEventListener("resize", () => drawMainChart());
+  window.addEventListener("offline", () => {
+    dataStatus.level = "error";
+    dataStatus.message =
+      "네트워크에 연결되어 있지 않아 환율 데이터를 불러오지 못했습니다. 인터넷 연결 후 다시 시도해 주세요.";
+    render();
+  });
+  window.addEventListener("online", () => {
+    refreshData();
+  });
 }
 
 function render() {
+  renderStatus();
   renderMeta();
   renderFavoritesToolbar();
   renderCards();
   renderActiveSeries();
   renderCalculator();
   renderDetails();
-  drawMainChart();
+  renderChartEmptyState();
+  if (state.series.length) {
+    try {
+      drawMainChart();
+    } catch (error) {
+      console.error(error);
+      chartStatus.message = "이 기기에서 차트를 렌더링하는 중 문제가 발생했습니다.";
+      renderChartEmptyState();
+    }
+  }
 }
 
 async function refreshData() {
+  dataStatus.level = "ok";
+  dataStatus.message = "";
+  chartStatus.message = "";
   const payload = await loadSeries();
   state.series = payload.series;
   state.updatedAt = payload.updatedAt;

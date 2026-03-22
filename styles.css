@@ -39,6 +39,11 @@ input {
   font: inherit;
 }
 
+select,
+option {
+  font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
+}
+
 .page-shell {
   width: min(1180px, 100%);
   max-width: 100%;
@@ -138,6 +143,7 @@ input {
   min-width: 0;
 }
 
+
 .section {
   width: 100%;
   max-width: 100%;
@@ -197,6 +203,8 @@ input {
   flex: 1 1 auto;
   min-width: 0;
   padding: 0 12px;
+  -webkit-appearance: menulist;
+  appearance: auto;
 }
 
 .favorites-toolbar__add,
@@ -342,6 +350,10 @@ input {
   height: auto;
   display: block;
   touch-action: none;
+}
+
+#main-chart[hidden] {
+  display: none;
 }
 
 .chart-tooltip {
