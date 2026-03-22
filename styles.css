@@ -31,10 +31,7 @@ body {
 body {
   font-family: "Nanum Gothic", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
   color: var(--text);
-  background:
-    radial-gradient(circle at top left, rgba(255, 210, 148, 0.9), transparent 28%),
-    radial-gradient(circle at top right, rgba(85, 166, 177, 0.24), transparent 26%),
-    linear-gradient(180deg, #f7f0e2 0%, #efe5d6 100%);
+  background: #efe5d6;
 }
 
 button,
@@ -345,6 +342,10 @@ input {
   background: rgba(92, 72, 38, 0.08);
   color: var(--text);
   font-size: 0.84rem;
+}
+
+.active-series__value {
+  font-size: 0.82rem;
 }
 
 .active-series__dot {

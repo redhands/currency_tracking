@@ -71,11 +71,14 @@ function formatUpdatedAt(value) {
 
 function formatAxisValue(value) {
   if (chartMode.current === "indexed") {
-    return `${value.toFixed(1)}p`;
+    const diff = value - 100;
+    const rounded = Math.round(diff);
+    const sign = rounded > 0 ? "+" : rounded < 0 ? "-" : " ";
+    return `${sign}${Math.abs(rounded)}%`;
   }
 
   return new Intl.NumberFormat("ko-KR", {
-    maximumFractionDigits: value >= 100 ? 0 : 2,
+    maximumFractionDigits: 0,
   }).format(value);
 }
 
@@ -377,11 +380,18 @@ function renderActiveSeries() {
   activeSeriesRoot.innerHTML = "";
 
   activeSeries.forEach((series) => {
+    const stats = computeStats(series);
+    const rateText = formatRate(stats.changeRate);
     const chip = document.createElement("div");
     chip.className = "active-series__chip";
     chip.innerHTML = `
       <span class="active-series__dot" style="background:${series.color}"></span>
       <span>${series.code}/KRW</span>
+      ${
+        chartMode.current === "indexed"
+          ? `<strong class="active-series__value">${rateText}</strong>`
+          : ""
+      }
     `;
     activeSeriesRoot.appendChild(chip);
   });
@@ -468,8 +478,16 @@ function drawMainChart(activeIndex = null) {
   const values = visibleSeries.flatMap((series) =>
     series.points.map((_, index) => getDisplayValue(series, index))
   );
-  const min = Math.min(...values);
-  const max = Math.max(...values);
+  let min = Math.min(...values);
+  let max = Math.max(...values);
+
+  // In compare mode, keep the chart symmetric around 0% so gains/losses are visually balanced.
+  if (chartMode.current === "indexed") {
+    const maxAbsDiff = Math.max(Math.abs(max - 100), Math.abs(min - 100));
+    min = 100 - maxAbsDiff;
+    max = 100 + maxAbsDiff;
+  }
+
   const range = max - min || 1;
 
   ctx.clearRect(0, 0, width, height);
@@ -477,15 +495,38 @@ function drawMainChart(activeIndex = null) {
   ctx.lineWidth = 1;
   ctx.fillStyle = "rgba(103, 87, 70, 0.82)";
   ctx.font = '11px "Nanum Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif';
+  ctx.textAlign = "left";
 
-  for (let i = 0; i < 4; i += 1) {
-    const y = padding.top + (innerHeight / 3) * i;
-    const axisValue = max - (range / 3) * i;
-    ctx.beginPath();
-    ctx.moveTo(padding.left, y);
-    ctx.lineTo(width - padding.right, y);
-    ctx.stroke();
-    ctx.fillText(formatAxisValue(axisValue), padding.left + 6, y - (i === 0 ? -12 : 6));
+  if (chartMode.current === "indexed") {
+    const minPercent = Math.round(min - 100);
+    const maxPercent = Math.round(max - 100);
+
+    for (let percent = minPercent; percent <= maxPercent; percent += 1) {
+      const axisValue = 100 + percent;
+      const y = padding.top + innerHeight - ((axisValue - min) / range) * innerHeight;
+      ctx.strokeStyle = percent === 0 ? "rgba(197, 90, 17, 0.35)" : "rgba(92, 72, 38, 0.12)";
+      ctx.lineWidth = percent === 0 ? 1.4 : 1;
+      ctx.beginPath();
+      ctx.moveTo(padding.left, y);
+      ctx.lineTo(width - padding.right, y);
+      ctx.stroke();
+
+      ctx.fillStyle = percent === 0 ? "rgba(197, 90, 17, 0.9)" : "rgba(103, 87, 70, 0.82)";
+      ctx.fillText(formatAxisValue(axisValue), padding.left + 6, y - 6);
+    }
+  } else {
+    for (let i = 0; i < 4; i += 1) {
+      const y = padding.top + (innerHeight / 3) * i;
+      const axisValue = max - (range / 3) * i;
+      ctx.strokeStyle = "rgba(92, 72, 38, 0.12)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(padding.left, y);
+      ctx.lineTo(width - padding.right, y);
+      ctx.stroke();
+      ctx.fillStyle = "rgba(103, 87, 70, 0.82)";
+      ctx.fillText(formatAxisValue(axisValue), padding.left + 6, y - (i === 0 ? -12 : 6));
+    }
   }
 
   ctx.fillStyle = "#7d6b58";
@@ -496,6 +537,17 @@ function drawMainChart(activeIndex = null) {
   const middleDate = visibleSeries[0].points[Math.floor((pointCount - 1) / 2)].date;
   const lastDate = visibleSeries[0].points[pointCount - 1].date;
 
+  // Weekly guide lines on the time axis.
+  for (let index = 0; index < pointCount; index += 7) {
+    const x = padding.left + (index / (pointCount - 1)) * innerWidth;
+    ctx.strokeStyle = "rgba(92, 72, 38, 0.1)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x, padding.top);
+    ctx.lineTo(x, height - padding.bottom);
+    ctx.stroke();
+  }
+
   [firstDate, middleDate, lastDate].forEach((date, index) => {
     const x = padding.left + (innerWidth / 2) * index;
     ctx.fillText(formatDate(date), x, height - 12);
@@ -503,7 +555,7 @@ function drawMainChart(activeIndex = null) {
 
   visibleSeries.forEach((series) => {
     ctx.beginPath();
-    ctx.lineWidth = focusCode.current === series.code ? 5.25 : 2.1;
+    ctx.lineWidth = focusCode.current === series.code ? 3.15 : 2.1;
     ctx.strokeStyle = series.color;
     ctx.globalAlpha = focusCode.current === series.code ? 1 : 0.3;
 
@@ -557,7 +609,7 @@ function showTooltip(pointIndex, clientX, clientY) {
     const display =
       chartMode.current === "absolute"
         ? formatNumber(rawValue, primarySeries.code)
-        : `${getDisplayValue(primarySeries, pointIndex).toFixed(2)}p`;
+        : `${formatRate(getDisplayValue(primarySeries, pointIndex) - 100)}`;
     const extraCount = Math.max(0, visibleSeries.length - 1);
 
     tooltip.innerHTML = `
@@ -580,7 +632,7 @@ function showTooltip(pointIndex, clientX, clientY) {
           const rawValue = series.points[pointIndex].value;
           const display = chartMode.current === "absolute"
             ? formatNumber(rawValue, series.code)
-            : `${getDisplayValue(series, pointIndex).toFixed(2)}p`;
+            : formatRate(getDisplayValue(series, pointIndex) - 100);
           return `
             <div class="chart-tooltip__row">
               <div><span class="chart-tooltip__swatch" style="background:${series.color}"></span>${series.code}/KRW</div>
