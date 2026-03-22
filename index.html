@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>원화 대비 주요 환율 추이</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <div class="hero__badge">FX / KRW Dashboard</div>
+        <h1>원화 대비 주요 환율 3개월 추이</h1>
+        <p class="hero__description">
+          최근 3개월 동안 달러, 엔, 필리핀 페소, 태국 바트가 원화 대비
+          어떻게 움직였는지 한눈에 비교할 수 있습니다.
+        </p>
+
+        <div class="hero__meta">
+          <div class="meta-card">
+            <span class="meta-card__label">기준 시각</span>
+            <strong id="updated-at"></strong>
+          </div>
+          <div class="meta-card">
+            <span class="meta-card__label">데이터 범위</span>
+            <strong>최근 3개월</strong>
+          </div>
+          <div class="meta-card">
+            <span class="meta-card__label">출처</span>
+            <strong id="source-label">데이터 불러오는 중</strong>
+          </div>
+        </div>
+
+        <div class="control-panel">
+          <div class="toggle-group" id="mode-toggle" aria-label="보기 방식 선택">
+            <button class="toggle-group__button" data-mode="absolute">실환율 보기</button>
+            <button class="toggle-group__button is-active" data-mode="indexed">변동률로 비교</button>
+          </div>
+        </div>
+        <p class="sync-status" id="sync-status">환율 데이터를 연결하고 있습니다.</p>
+      </header>
+
+      <main class="content">
+        <section class="section">
+          <div class="section__heading">
+            <div>
+              <p class="section__eyebrow">Quick Scan</p>
+              <h2>통화별 요약 카드</h2>
+            </div>
+            <p class="section__hint">카드를 누르면 메인 차트에서 강조됩니다.</p>
+          </div>
+          <div class="card-strip" id="summary-cards"></div>
+        </section>
+
+        <section class="section chart-section">
+          <div class="section__heading">
+            <div>
+              <p class="section__eyebrow">Compare</p>
+              <h2>메인 비교 차트</h2>
+            </div>
+            <p class="section__hint">비교 모드는 복수 선택, 실환율 모드는 단일 선택으로 동작합니다.</p>
+          </div>
+
+          <div class="chart-panel">
+            <canvas id="main-chart" width="960" height="520" aria-label="환율 비교 차트"></canvas>
+            <div class="chart-tooltip" id="chart-tooltip" hidden></div>
+          </div>
+
+          <div class="active-series" id="active-series"></div>
+          <div class="legend" id="legend"></div>
+        </section>
+
+        <section class="section details-section">
+          <div class="section__heading">
+            <div>
+              <p class="section__eyebrow">Numbers</p>
+              <h2>상세 수치</h2>
+            </div>
+            <p class="section__hint">모바일은 아코디언, 데스크톱은 표 형식으로 확인할 수 있습니다.</p>
+          </div>
+
+          <div class="accordion-list" id="details-accordion"></div>
+
+          <div class="table-wrap">
+            <table class="details-table">
+              <thead>
+                <tr>
+                  <th>통화</th>
+                  <th>현재가</th>
+                  <th>3개월 전</th>
+                  <th>증감액</th>
+                  <th>3개월 증감률</th>
+                  <th>최고가</th>
+                  <th>최저가</th>
+                  <th>변동폭</th>
+                </tr>
+              </thead>
+              <tbody id="details-table-body"></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="./config.js"></script>
+    <script src="./script.js"></script>
+  </body>
+</html>
